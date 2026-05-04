@@ -59,10 +59,10 @@ class SMERepository:
     ) -> list[tuple[SMERead, float]]:
         vector_str = f"[{','.join(str(x) for x in query_vector)}]"
         sql = text("""
-            SELECT id, 1 - (embedding <=> CAST(:vec AS vector)) AS similarity
+            SELECT id, 1 - (embedding <=> :vec::vector) AS similarity
             FROM smes
             WHERE embedding IS NOT NULL
-            ORDER BY embedding <=> CAST(:vec AS vector)
+            ORDER BY embedding <=> :vec::vector
             LIMIT :k
         """)
         result = await self.db.execute(sql, {"vec": vector_str, "k": top_k})
