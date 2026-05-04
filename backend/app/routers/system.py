@@ -16,11 +16,6 @@ async def purge(db: AsyncSession = Depends(get_db)):
         RESTART IDENTITY CASCADE
     """))
     await db.commit()
-
-    # Clear C's in-memory interview state so stale sessions don't survive a purge
-    from app.dependencies import interview_service
-    interview_service._state.clear()
-
     return {"status": "purged", "message": "All data deleted"}
 
 

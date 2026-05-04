@@ -12,5 +12,3 @@ nanoid==2.0.0
 httpx==0.27.2
 openai
 pypdf
-tenacity
-jinja2
