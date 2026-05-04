@@ -3,7 +3,9 @@ from app.schemas.sme import SMECreate, SMERead, SMEListResponse
 from app.schemas.interview import (
     InterviewCreate, InterviewTurnCreate, InterviewTurnRead,
     InterviewTurnResponse, InterviewSummary, InterviewRead,
-    InterviewWithTurns, InterviewListResponse
+    InterviewWithTurns, InterviewListResponse,
+    CreateInterviewResponse, SubmitAnswerRequest, SubmitAnswerResponse,
+    SupplementRequest, ResumeResponse,
 )
 from app.schemas.material import MaterialRead, MaterialSummary, MaterialListResponse
 from app.schemas.knowledge import (

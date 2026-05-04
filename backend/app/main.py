@@ -1,21 +1,26 @@
+import os
 from fastapi import FastAPI
-from fastapi.security import HTTPBearer
 from datetime import datetime, timezone
-from app.routers import smes, knowledge, system, stubs, admin
+from app.routers import smes, knowledge, system, admin
+from app.routers import interview, synthesis
+from app.routers.stubs import router as stubs_router
 
-bearer_scheme = HTTPBearer()
-
-app = FastAPI(
-    title="Project Thoth API",
-    version="1.0.0",
-)
+app = FastAPI(title="Project Thoth API", version="1.0.0")
 
 app.include_router(smes.router)
 app.include_router(knowledge.router)
 app.include_router(system.router)
-app.include_router(stubs.router)
 app.include_router(admin.router)
+app.include_router(interview.router)
+app.include_router(synthesis.router)
+app.include_router(stubs_router)
 
+if os.getenv("ENV", "dev") == "dev":
+    @app.post("/dev/seed", tags=["dev"])
+    async def run_seed():
+        from app.tests.seed_test_data import seed
+        await seed()
+        return {"ok": True}
 
 @app.get("/api/v1/health")
 async def health():

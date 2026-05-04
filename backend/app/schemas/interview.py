@@ -1,7 +1,9 @@
-from pydantic import BaseModel
 from typing import Optional
+from pydantic import BaseModel
 from datetime import datetime
-from app.schemas.common import UsageSchema
+
+
+# -- A's schemas (benchmark API contract) ------------------------------
 
 class InterviewCreate(BaseModel):
     topic: str
@@ -22,7 +24,7 @@ class InterviewTurnResponse(BaseModel):
     sme_response: str
     agent_follow_up: Optional[str]
     timestamp: datetime
-    usage: Optional[UsageSchema] = None
+    usage: Optional[dict] = None
 
 class InterviewSummary(BaseModel):
     interview_id: str
@@ -52,3 +54,29 @@ class InterviewWithTurns(BaseModel):
 
 class InterviewListResponse(BaseModel):
     interviews: list[InterviewSummary]
+
+
+# -- C's schemas (interview service) -----------------------------------
+
+class CreateInterviewResponse(BaseModel):
+    interview_id: str
+    first_question: str
+    topic_index: int
+
+class SubmitAnswerRequest(BaseModel):
+    sme_response: str
+
+class SubmitAnswerResponse(BaseModel):
+    type: str
+    question: Optional[str] = None
+    topic_index: Optional[int] = None
+    turn_number: Optional[int] = None
+    interview_id: Optional[str] = None
+
+class SupplementRequest(BaseModel):
+    supplement: str
+
+class ResumeResponse(BaseModel):
+    topic_index: int
+    turn_number: int
+    last_question: str
