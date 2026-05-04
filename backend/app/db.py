@@ -8,8 +8,7 @@ engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
     connect_args={
-        "statement_cache_size": 0,            # asyncpg's own LRU cache
-        "prepared_statement_cache_size": 0,   # SQLAlchemy dialect-level cache
+        "statement_cache_size": 0,
         "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4()}__",
     },
 )

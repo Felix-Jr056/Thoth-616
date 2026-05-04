@@ -137,13 +137,13 @@ class KnowledgeRepository:
                 ke.topic,
                 ke.sme_id,
                 s.name AS sme_name,
-                1 - (kc.embedding <=> CAST(:vec AS vector)) AS similarity
+                1 - (kc.embedding <=> :vec::vector) AS similarity
             FROM knowledge_chunks kc
             JOIN knowledge_entries ke ON kc.entry_id = ke.id
             JOIN smes s ON ke.sme_id = s.id
             WHERE kc.embedding IS NOT NULL
               AND ke.status = 'approved'
-            ORDER BY kc.embedding <=> CAST(:vec AS vector)
+            ORDER BY kc.embedding <=> :vec::vector
             LIMIT :k
         """)
         result = await self.db.execute(sql, {"vec": vector_str, "k": top_k})
