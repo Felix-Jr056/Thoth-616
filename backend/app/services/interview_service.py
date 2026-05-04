@@ -2,7 +2,7 @@ import logging
 import re
 from pathlib import Path
 
-from app.llm_client import LLMClient
+from app.ai_core.llm_client import LLMClient
 from app.repositories.stub import InterviewRepository
 
 logger = logging.getLogger(__name__)

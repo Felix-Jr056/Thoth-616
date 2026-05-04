@@ -75,10 +75,11 @@ async def submit_interview_turn(
     turn_number = result.get("turn_number", 1)
     follow_up = result.get("question")  # None if completed
 
+    from app.ai_core.token_tracker import TokenTracker
     return {
         "turn_number": turn_number,
         "sme_response": body.sme_response,
         "agent_follow_up": follow_up,
         "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "usage": None,
+        "usage": TokenTracker.collect(),
     }

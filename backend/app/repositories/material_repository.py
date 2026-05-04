@@ -92,12 +92,12 @@ class MaterialRepository:
                 mc.chunk_text,
                 mc.material_id,
                 m.title AS material_title,
-                1 - (mc.embedding <=> :vec::vector) AS similarity
+                1 - (mc.embedding <=> CAST(:vec AS vector)) AS similarity
             FROM material_chunks mc
             JOIN materials m ON mc.material_id = m.id
             WHERE mc.embedding IS NOT NULL
             {exposable_filter}
-            ORDER BY mc.embedding <=> :vec::vector
+            ORDER BY mc.embedding <=> CAST(:vec AS vector)
             LIMIT :k
         """)
         result = await self.db.execute(sql, {"vec": vector_str, "k": top_k})

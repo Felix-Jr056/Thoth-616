@@ -1,5 +1,5 @@
 import os
-from app.llm_client import LLMClient
+from app.ai_core.llm_client import LLMClient
 from app.repositories.db_interview_adapter import DBInterviewRepository
 from app.repositories.knowledge_repository import KnowledgeRepository
 from app.services.interview_service import InterviewService

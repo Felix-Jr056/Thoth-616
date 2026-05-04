@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from app.llm_client import LLMClient
+from app.ai_core.llm_client import LLMClient
 from app.repositories.stub import InterviewRepository
 try:
     from app.repositories.knowledge_repository import KnowledgeRepository as KnowledgeEntryRepository
