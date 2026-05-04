@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.security import HTTPBearer
 from datetime import datetime, timezone
-from app.routers import smes, knowledge, system, stubs
+from app.routers import smes, knowledge, system, stubs, admin
 
 bearer_scheme = HTTPBearer()
 
@@ -14,6 +14,7 @@ app.include_router(smes.router)
 app.include_router(knowledge.router)
 app.include_router(system.router)
 app.include_router(stubs.router)
+app.include_router(admin.router)
 
 
 @app.get("/api/v1/health")
