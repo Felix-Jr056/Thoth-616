@@ -36,6 +36,15 @@ class LLMClient:
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        try:
+            from app.ai_core.token_tracker import TokenTracker
+            TokenTracker.record(
+                model=model,
+                prompt=response.usage.prompt_tokens,
+                completion=response.usage.completion_tokens,
+            )
+        except Exception:
+            pass
         return LLMResponse(
             content=response.choices[0].message.content,
             usage={

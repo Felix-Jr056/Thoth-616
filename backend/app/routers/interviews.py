@@ -80,5 +80,5 @@ async def submit_interview_turn(
         "sme_response": body.sme_response,
         "agent_follow_up": follow_up,
         "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "usage": None,
+        "usage": result.get("usage"),
     }

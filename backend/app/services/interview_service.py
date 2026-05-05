@@ -96,7 +96,7 @@ class InterviewService:
         }
 
         agenda_item_0 = agenda[0] if agenda else specialization
-        first_question = await self._generate_topic_question(
+        first_question, _ = await self._generate_topic_question(
             agenda_item=agenda_item_0,
             sme_profile=sme_profile,
         )
@@ -136,11 +136,13 @@ class InterviewService:
 
         # Refine: only current-topic context passes through (isolation guaranteed by
         # state["refined_summary"] which resets to "" at the start of every topic).
-        refined_summary = await self._refine_topic(
+        usage_buckets: list[dict] = []
+        refined_summary, u = await self._refine_topic(
             topic_question=topic_question,
             previous_summary=state["refined_summary"],
             sme_response=sme_response,
         )
+        usage_buckets.append(u)
 
         new_turn_count = turn_count + 1
 
@@ -151,14 +153,26 @@ class InterviewService:
         if new_turn_count >= 10:
             decision = "CONCLUDE"
         else:
-            decision = await self._conclude_or_continue(
+            decision, u = await self._conclude_or_continue(
                 topic_question=topic_question,
                 refined_summary=refined_summary,
                 turn_number=new_turn_count,
             )
+            usage_buckets.append(u)
+
+        def _sum_usage(buckets: list[dict]) -> dict:
+            pt = sum(b.get("prompt_tokens", 0) for b in buckets)
+            ct = sum(b.get("completion_tokens", 0) for b in buckets)
+            return {
+                "prompt_tokens": pt,
+                "completion_tokens": ct,
+                "total_tokens": pt + ct,
+                "model": self._llm.interview_model,
+            }
 
         if decision == "CONTINUE":
-            follow_up = await self._generate_followup(refined_summary)
+            follow_up, u = await self._generate_followup(refined_summary)
+            usage_buckets.append(u)
             await self._repo.add_turn(
                 interview_id=interview_id,
                 sme_response=sme_response,
@@ -173,6 +187,7 @@ class InterviewService:
                 "turn_number": new_turn_count,
                 "topic_index": state["topic_index"],
                 "interview_id": interview_id,
+                "usage": _sum_usage(usage_buckets),
             }
 
         # CONCLUDE branch
@@ -197,10 +212,11 @@ class InterviewService:
 
         if next_topic_index < total_topics:
             agenda_item = agenda[next_topic_index] if agenda else f"topic {next_topic_index + 1}"
-            next_question = await self._generate_topic_question(
+            next_question, u = await self._generate_topic_question(
                 agenda_item=agenda_item,
                 sme_profile=state["sme_profile"],
             )
+            usage_buckets.append(u)
             state["topic_index"] = next_topic_index
             state["topic_question"] = next_question
             state["turn_count"] = 0
@@ -210,11 +226,12 @@ class InterviewService:
                 "question": next_question,
                 "topic_index": next_topic_index,
                 "total_topics": total_topics,
+                "usage": _sum_usage(usage_buckets),
             }
 
         await self._repo.mark_completed(interview_id)
         state["completed"] = True
-        return {"type": "completed", "interview_id": interview_id}
+        return {"type": "completed", "interview_id": interview_id, "usage": _sum_usage(usage_buckets)}
 
     async def add_supplement(self, interview_id: str, supplement: str) -> dict:
         data = await self._repo.get_with_turns(interview_id)
@@ -292,7 +309,7 @@ class InterviewService:
             return {"type": "completed"}
 
         agenda_item = agenda[next_topic_index] if agenda else f"topic {next_topic_index + 1}"
-        next_question = await self._generate_topic_question(
+        next_question, _ = await self._generate_topic_question(
             agenda_item=agenda_item,
             sme_profile=state["sme_profile"],
         )
@@ -361,7 +378,7 @@ class InterviewService:
         self._state[interview_id] = state
         return state
 
-    async def _generate_topic_question(self, agenda_item: str, sme_profile: dict) -> str:
+    async def _generate_topic_question(self, agenda_item: str, sme_profile: dict) -> tuple[str, dict]:
         template = _load_prompt("interview_topic.md")
         prompt = (
             template
@@ -377,11 +394,11 @@ class InterviewService:
             model=self._llm.interview_model,
             temperature=0.5,
         )
-        return response.content.strip()
+        return response.content.strip(), response.usage
 
     async def _refine_topic(
         self, topic_question: str, previous_summary: str, sme_response: str
-    ) -> str:
+    ) -> tuple[str, dict]:
         template = _load_prompt("interview_refine.md")
         prompt = (
             template
@@ -393,11 +410,11 @@ class InterviewService:
             messages=[{"role": "user", "content": prompt}],
             model=self._llm.interview_model,
         )
-        return response.content.strip()
+        return response.content.strip(), response.usage
 
     async def _conclude_or_continue(
         self, topic_question: str, refined_summary: str, turn_number: int
-    ) -> str:
+    ) -> tuple[str, dict]:
         template = _load_prompt("interview_conclude.md")
         prompt = (
             template
@@ -411,13 +428,13 @@ class InterviewService:
             max_tokens=16,
         )
         result = response.content.strip().upper()
-        return "CONTINUE" if "CONTINUE" in result else "CONCLUDE"
+        return ("CONTINUE" if "CONTINUE" in result else "CONCLUDE"), response.usage
 
-    async def _generate_followup(self, refined_summary: str) -> str:
+    async def _generate_followup(self, refined_summary: str) -> tuple[str, dict]:
         template = _load_prompt("interview_followup.md")
         prompt = template.replace("{refined_summary}", refined_summary)
         response = await self._llm.chat(
             messages=[{"role": "user", "content": prompt}],
             model=self._llm.interview_model,
         )
-        return response.content.strip()
+        return response.content.strip(), response.usage
