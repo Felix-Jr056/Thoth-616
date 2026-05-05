@@ -1,9 +1,11 @@
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
-load_dotenv()
+_here = Path(__file__).resolve().parents[2]
+load_dotenv(_here / ".env")
 
 
 @dataclass
