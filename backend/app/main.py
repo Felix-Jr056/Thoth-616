@@ -35,6 +35,7 @@ def _build_query_service():
     from app.ai_core.embedding_client import EmbeddingService
     from app.services.retrieval_service import RetrievalService
     from app.services.query_service import QueryService
+    from app.services.qa_cache_service import QACacheService
     from app.db import AsyncSessionLocal
 
     loader = PromptLoader(PROMPTS_DIR)
@@ -94,9 +95,32 @@ def _build_query_service():
                 from app.repositories.session_repository import SessionRepository
                 await SessionRepository(db).clear_all()
 
+    class _DBQACacheRepo:
+        async def search(self, embedding, threshold_hard, threshold_soft):
+            async with AsyncSessionLocal() as db:
+                from app.repositories.qa_cache_repository import QACacheRepository
+                return await QACacheRepository(db).search(embedding, threshold_hard, threshold_soft)
+
+        async def store(self, question, answer, embedding, entry_ids, session_id):
+            async with AsyncSessionLocal() as db:
+                from app.repositories.qa_cache_repository import QACacheRepository
+                await QACacheRepository(db).store(question, answer, embedding, entry_ids, session_id)
+
+        async def invalidate_by_entry(self, entry_id):
+            async with AsyncSessionLocal() as db:
+                from app.repositories.qa_cache_repository import QACacheRepository
+                await QACacheRepository(db).invalidate_by_entry(entry_id)
+
+        async def increment_hit(self, cache_id):
+            async with AsyncSessionLocal() as db:
+                from app.repositories.qa_cache_repository import QACacheRepository
+                await QACacheRepository(db).increment_hit(cache_id)
+
     kb_repo = _DBKBRepo()
     sme_repo = _DBSMERepo()
     session_repo = _DBSessionRepo()
+    qa_cache_repo = _DBQACacheRepo()
+    qa_cache_service = QACacheService(repo=qa_cache_repo)
 
     retrieval = RetrievalService(kb_repo=kb_repo, sme_repo=sme_repo, embedding=embedding)
     return QueryService(
@@ -105,6 +129,7 @@ def _build_query_service():
         session_repo=session_repo,
         embedding=embedding,
         sme_repo=sme_repo,
+        qa_cache_service=qa_cache_service,
     )
 
 
