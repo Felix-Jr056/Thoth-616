@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, Integer, Text, TIMESTAMP, ForeignKey, func, CheckConstraint, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from app.db import Base
 
@@ -12,6 +13,18 @@ class Interview(Base):
     requested_by = Column(Text, nullable=True)
     admin_note = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    agenda_json = Column(
+        JSONB,
+        nullable=False,
+        server_default='[]',
+        comment="Ordered list of topic strings for this interview session",
+    )
+    current_topic_index = Column(
+        Integer,
+        nullable=False,
+        server_default='0',
+        comment="Index into agenda_json indicating the topic currently being captured",
+    )
 
     sme = relationship("SME", back_populates="interviews")
     turns = relationship("InterviewTurn", back_populates="interview", cascade="all, delete", order_by="InterviewTurn.turn_number")

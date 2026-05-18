@@ -1,5 +1,4 @@
 import json
-import os
 import re
 from dataclasses import dataclass
 from typing import Literal
@@ -7,6 +6,7 @@ from typing import Literal
 from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from app.config import settings
 from app.ai_core.prompt_loader import PromptLoader
 from app.ai_core.model_router import ModelRouter
 from app.ai_core.token_tracker import TokenTracker
@@ -24,8 +24,8 @@ class LLMClient:
         self._prompts = prompt_loader
         self._router = model_router
         self._client = client or AsyncOpenAI(
-            api_key=os.getenv("LLM_API_KEY"),
-            base_url=os.getenv("LLM_BASE_URL") or None,
+            api_key=settings.LLM_API_KEY,
+            base_url=settings.LLM_BASE_URL or None,
         )
 
     async def call(
@@ -65,7 +65,11 @@ class LLMClient:
 
     @staticmethod
     def _parse_json(text: str) -> dict | None:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
+        # Strip markdown code fences if present
+        clean = re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=re.MULTILINE)
+        clean = re.sub(r"\s*```$", "", clean.strip(), flags=re.MULTILINE)
+        # Find the first JSON object
+        match = re.search(r"\{.*\}", clean, re.DOTALL)
         if not match:
             return None
         try:
