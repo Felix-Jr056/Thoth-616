@@ -26,6 +26,7 @@ class LLMClient:
         self._client = client or AsyncOpenAI(
             api_key=settings.LLM_API_KEY,
             base_url=settings.LLM_BASE_URL or None,
+            timeout=30.0,
         )
 
     async def call(
@@ -35,9 +36,10 @@ class LLMClient:
         response_format: Literal["text", "json"] = "text",
     ) -> LLMResponse:
         model = self._router.get_model(task)
+        max_tokens = self._router.get_max_tokens(task)
         rendered = self._prompts.get(task, inputs)
 
-        msg = await self._create(model=model, system=rendered.system, user=rendered.user)
+        msg = await self._create(model=model, system=rendered.system, user=rendered.user, max_tokens=max_tokens)
 
         text = msg.choices[0].message.content
         TokenTracker.record(
@@ -53,10 +55,10 @@ class LLMClient:
         return LLMResponse(text=text, json=parsed_json, model=model)
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
-    async def _create(self, model: str, system: str, user: str):
+    async def _create(self, model: str, system: str, user: str, max_tokens: int = 4000):
         return await self._client.chat.completions.create(
             model=model,
-            max_tokens=4000,
+            max_tokens=max_tokens,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},

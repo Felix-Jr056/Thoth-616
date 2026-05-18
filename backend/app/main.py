@@ -59,6 +59,11 @@ def _build_query_service():
                 from app.repositories.knowledge_repository import KnowledgeRepository
                 return await KnowledgeRepository(db).search_by_embedding(query_vector, top_k)
 
+        async def get_sources_for_entries(self, entry_ids):
+            async with AsyncSessionLocal() as db:
+                from app.repositories.knowledge_repository import KnowledgeRepository
+                return await KnowledgeRepository(db).get_sources_for_entries(entry_ids)
+
     class _DBSMERepo:
         async def list_all(self):
             async with AsyncSessionLocal() as db:
@@ -120,11 +125,18 @@ def _build_query_service():
                 from app.repositories.qa_cache_repository import QACacheRepository
                 await QACacheRepository(db).increment_hit(cache_id)
 
+    class _DBQueryLogRepo:
+        async def log(self, question: str, session_id: str | None, response_type: str | None, related_sme_id: str | None = None) -> None:
+            async with AsyncSessionLocal() as db:
+                from app.repositories.query_log_repository import QueryLogRepository
+                await QueryLogRepository(db).log(question, session_id, response_type, related_sme_id)
+
     kb_repo = _DBKBRepo()
     sme_repo = _DBSMERepo()
     session_repo = _DBSessionRepo()
     cache_repo = _DBCacheRepo()
     qa_cache = QACacheService(repo=cache_repo)
+    query_log_repo = _DBQueryLogRepo()
 
     retrieval = RetrievalService(kb_repo=kb_repo, sme_repo=sme_repo, embedding=embedding)
     return QueryService(
@@ -134,6 +146,7 @@ def _build_query_service():
         embedding=embedding,
         sme_repo=sme_repo,
         qa_cache=qa_cache,
+        query_log=query_log_repo,
     )
 
 

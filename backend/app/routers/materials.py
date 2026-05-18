@@ -1,6 +1,6 @@
 from io import BytesIO
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
@@ -60,7 +60,6 @@ async def _embed(mid: str, text: str) -> None:
 @router.post("/smes/{sme_id}/materials", response_model=MaterialRead, status_code=201)
 async def upload_material(
     sme_id: str,
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     title: str = Form(...),
     description: str = Form(None),
@@ -95,7 +94,7 @@ async def upload_material(
         description=description,
     )
 
-    background_tasks.add_task(_embed, material.material_id, raw_text)
+    await _embed(material.material_id, raw_text)
 
     return material
 

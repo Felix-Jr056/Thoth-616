@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     EMBEDDING_DIM: int = 1024
 
     # Query thresholds
-    KB_SIMILARITY_THRESHOLD: float = 0.70
+    KB_SIMILARITY_THRESHOLD: float = 0.60
     QA_CACHE_HIT_THRESHOLD: float = 0.93
     QA_CACHE_SOFT_THRESHOLD: float = 0.82
 

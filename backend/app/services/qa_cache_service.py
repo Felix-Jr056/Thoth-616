@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from app.config import settings
 
 
@@ -7,6 +7,7 @@ class CacheCheckResult:
     hit_type: str  # "exact" | "soft" | "miss"
     answer: str | None
     cache_id: str | None
+    source_entry_ids: list[str] = field(default_factory=list)
 
 
 class QACacheService:
@@ -20,7 +21,12 @@ class QACacheService:
         hit_type = result["hit_type"]
         row = result["row"]
         if hit_type in ("exact", "soft"):
-            return CacheCheckResult(hit_type=hit_type, answer=row.answer, cache_id=row.id)
+            return CacheCheckResult(
+                hit_type=hit_type,
+                answer=row.answer,
+                cache_id=row.id,
+                source_entry_ids=list(row.source_entry_ids or []),
+            )
         return CacheCheckResult(hit_type="miss", answer=None, cache_id=None)
 
     async def store_async(

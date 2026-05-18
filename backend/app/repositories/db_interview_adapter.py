@@ -131,3 +131,13 @@ class DBInterviewRepository:
         async with AsyncSessionLocal() as db:
             repo = _DBRepo(db)
             return await repo.get_current_topic_index(interview_id)
+
+    async def set_topic_question(self, interview_id: str, question: str) -> None:
+        async with AsyncSessionLocal() as db:
+            repo = _DBRepo(db)
+            await repo.set_topic_question(interview_id, question)
+
+    async def get_topic_question(self, interview_id: str) -> str | None:
+        async with AsyncSessionLocal() as db:
+            repo = _DBRepo(db)
+            return await repo.get_topic_question(interview_id)

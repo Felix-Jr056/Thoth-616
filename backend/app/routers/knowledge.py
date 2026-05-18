@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.middleware.auth import verify_token
@@ -88,7 +88,6 @@ async def _try_embed_knowledge(entry_id: str, content: str) -> None:
 @router.post("/knowledge/{entry_id}/admin-approve", response_model=KnowledgeAdminApproveResponse)
 async def admin_approve(
     entry_id: str,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     repo = KnowledgeRepository(db)
@@ -99,8 +98,7 @@ async def admin_approve(
     except InvalidStateError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
-    # Trigger D's embedding pipeline after response is sent
-    background_tasks.add_task(_try_embed_knowledge, entry.entry_id, entry.content)
+    await _try_embed_knowledge(entry.entry_id, entry.content)
 
     return KnowledgeAdminApproveResponse(
         entry_id=entry.entry_id,

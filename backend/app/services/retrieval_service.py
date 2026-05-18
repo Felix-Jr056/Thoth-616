@@ -10,6 +10,9 @@ class RetrievalService:
     async def search_kb(self, query_vector: list[float], top_k: int = 5) -> list:
         return await self._kb.search_by_embedding(query_vector, top_k)
 
+    async def get_sources_for_entries(self, entry_ids: list[str]) -> list[dict]:
+        return await self._kb.get_sources_for_entries(entry_ids)
+
     async def search_smes(self, query_vector: list[float], top_k: int = 3) -> list:
         results = await self._sme.search_by_embedding(query_vector, top_k)
         max_sim = max((r.similarity for r in results), default=0.0)
