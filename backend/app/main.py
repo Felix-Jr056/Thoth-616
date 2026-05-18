@@ -1,8 +1,11 @@
 import os
 from pathlib import Path
 from datetime import datetime, timezone
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.middleware.tokens import TokenTrackingMiddleware
 from app.routers import smes, knowledge, system, admin, interviews, materials
@@ -28,19 +31,27 @@ app.include_router(query.router)
 app.include_router(stubs_router)
 
 
+# ── Global error shape: benchmark contract requires {"error": "..."} ──────────
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errs = exc.errors()
+    msg = "; ".join(
+        f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in errs
+    )
+    return JSONResponse(status_code=422, content={"error": msg})
+
+
 def _build_query_service():
-    from app.ai_core.prompt_loader import PromptLoader
-    from app.ai_core.model_router import ModelRouter
-    from app.ai_core.llm_client import LLMClient as DLLMClient
-    from app.ai_core.embedding_client import EmbeddingService
+    from app.dependencies import llm, embedding  # reuse module-level singletons
     from app.services.retrieval_service import RetrievalService
     from app.services.query_service import QueryService
+    from app.services.qa_cache_service import QACacheService
     from app.db import AsyncSessionLocal
-
-    loader = PromptLoader(PROMPTS_DIR)
-    model_router = ModelRouter()
-    llm = DLLMClient(prompt_loader=loader, model_router=model_router)
-    embedding = EmbeddingService()
 
     class _DBKBRepo:
         async def search_by_embedding(self, query_vector, top_k=5):
@@ -52,18 +63,12 @@ def _build_query_service():
         async def list_all(self):
             async with AsyncSessionLocal() as db:
                 from app.repositories.sme_repository import SMERepository
-                smes = await SMERepository(db).list_all()
-                # Convert SMERead (Pydantic) to objects D's QueryService can use
-                # D needs: .specialization, .sub_areas, .name, .sme_id
-                return smes  # SMERead already has all these fields
+                return await SMERepository(db).list_all()
 
         async def search_by_embedding(self, query_vector, top_k=3):
             async with AsyncSessionLocal() as db:
                 from app.repositories.sme_repository import SMERepository
                 results = await SMERepository(db).search_by_embedding(query_vector, top_k)
-                # A's search_by_embedding returns [(SMERead, float), ...]
-                # D's RetrievalService expects objects with .similarity attribute
-                # Wrap into compatible objects
                 class _SMEResult:
                     def __init__(self, sme, similarity):
                         self.sme_id = sme.sme_id
@@ -94,9 +99,32 @@ def _build_query_service():
                 from app.repositories.session_repository import SessionRepository
                 await SessionRepository(db).clear_all()
 
+    class _DBCacheRepo:
+        async def search(self, emb, threshold_hard, threshold_soft):
+            async with AsyncSessionLocal() as db:
+                from app.repositories.qa_cache_repository import QACacheRepository
+                return await QACacheRepository(db).search(emb, threshold_hard, threshold_soft)
+
+        async def store(self, question, answer, emb, entry_ids, session_id):
+            async with AsyncSessionLocal() as db:
+                from app.repositories.qa_cache_repository import QACacheRepository
+                await QACacheRepository(db).store(question, answer, emb, entry_ids, session_id)
+
+        async def invalidate_by_entry(self, entry_id: str):
+            async with AsyncSessionLocal() as db:
+                from app.repositories.qa_cache_repository import QACacheRepository
+                await QACacheRepository(db).invalidate_by_entry(entry_id)
+
+        async def increment_hit(self, cache_id: str):
+            async with AsyncSessionLocal() as db:
+                from app.repositories.qa_cache_repository import QACacheRepository
+                await QACacheRepository(db).increment_hit(cache_id)
+
     kb_repo = _DBKBRepo()
     sme_repo = _DBSMERepo()
     session_repo = _DBSessionRepo()
+    cache_repo = _DBCacheRepo()
+    qa_cache = QACacheService(repo=cache_repo)
 
     retrieval = RetrievalService(kb_repo=kb_repo, sme_repo=sme_repo, embedding=embedding)
     return QueryService(
@@ -105,6 +133,7 @@ def _build_query_service():
         session_repo=session_repo,
         embedding=embedding,
         sme_repo=sme_repo,
+        qa_cache=qa_cache,
     )
 
 

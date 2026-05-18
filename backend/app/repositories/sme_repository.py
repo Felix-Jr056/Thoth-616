@@ -47,11 +47,18 @@ class SMERepository:
         result = await self.db.execute(select(SME).order_by(SME.created_at.desc()))
         return [self._to_schema(s) for s in result.scalars().all()]
 
-    async def update_embedding(self, sme_id: str, embedding: list[float]) -> None:
+    async def update_embedding(
+        self,
+        sme_id: str,
+        embedding: list[float] | None,
+        status: str = "done",
+    ) -> None:
         result = await self.db.execute(select(SME).where(SME.id == sme_id))
         sme = result.scalar_one_or_none()
         if sme:
-            sme.embedding = embedding
+            if embedding is not None:
+                sme.embedding = embedding
+            sme.embedding_status = status
             await self.db.commit()
 
     async def search_by_embedding(

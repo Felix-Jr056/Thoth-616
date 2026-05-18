@@ -366,6 +366,11 @@ class InterviewService:
             prev_topic_index = last["topic_index"]
             prev_topic_question = last["topic_question"]
 
+        # Derive turn_count from persisted turns so the force-conclude branch
+        # at turn >= 10 stays reachable after a service restart.
+        db_turns = data.get("turns", []) if isinstance(data, dict) else []
+        turn_count = len(db_turns)
+
         sme_profile = {
             "name": "", "role": "", "department": "",
             "specialization": specialization,
@@ -386,7 +391,7 @@ class InterviewService:
             "specialization": specialization,
             "topic_index": topic_index,
             "topic_question": topic_question,
-            "turn_count": 0,
+            "turn_count": turn_count,
             "refined_summary": refined_summary,
             "prev_topic_index": prev_topic_index,
             "prev_topic_question": prev_topic_question,

@@ -25,6 +25,7 @@ async def purge(request: Request, db: AsyncSession = Depends(get_db)):
 
     await db.execute(text("""
         TRUNCATE
+            qa_cache,
             knowledge_chunks,
             material_chunks,
             interview_turns,

@@ -35,7 +35,9 @@ Good response:
 ## User Template
 QUESTION: {{ question }}
 
-KNOWLEDGE BASE EXCERPTS (approved expert knowledge):
+{% if cache_hint %}[CACHED CONTEXT]: {{ cache_hint }}
+
+{% endif %}KNOWLEDGE BASE EXCERPTS (approved expert knowledge):
 {{ kb_chunks }}
 
 Answer the question based only on the above excerpts. End with the disclaimer.
