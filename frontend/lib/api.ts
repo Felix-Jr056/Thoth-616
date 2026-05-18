@@ -75,3 +75,7 @@ export const query = (question: string, sessionId: string) =>
 // System
 export const purge = () => req('/system/purge', { method: 'POST' })
 export const reset = () => req('/system/reset', { method: 'POST' })
+
+// UI-specific
+export const endInterview = (interviewId: string) =>
+  req(`/ui/sme/interviews/${interviewId}/end`, { method: 'POST' })

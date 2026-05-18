@@ -75,8 +75,10 @@ function ChatBubble({ msg }: { msg: ChatMessage }) {
         {msg.content}
       </div>
 
-      {msg.disclaimer && (
-        <p className="mt-1.5 text-[11px] text-[#6B7280] italic px-1">{msg.disclaimer}</p>
+      {(msg.disclaimer || msg.grounded) && (
+        <p className="mt-1.5 text-[11px] text-[#6B7280] italic px-1">
+          {msg.disclaimer || 'This information is based on approved expert knowledge and does not constitute professional advice.'}
+        </p>
       )}
 
       {msg.response_type === 'answer' && msg.sources && msg.sources.length > 0 && (

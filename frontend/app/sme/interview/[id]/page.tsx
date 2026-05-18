@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Send } from 'lucide-react'
-import { getInterview, submitTurn } from '@/lib/api'
+import { getInterview, submitTurn, endInterview } from '@/lib/api'
 import { SMENav } from '@/components/sme/SMENav'
 import { useToast } from '@/components/shared/Toast'
 import type { Interview, Turn } from '@/lib/types'
@@ -19,6 +19,7 @@ export default function SMEInterviewPage() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone] = useState(false)
+  const [ending, setEnding] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const smeName = typeof window !== 'undefined' ? sessionStorage.getItem('sme_name') || '' : ''
 
@@ -81,10 +82,19 @@ export default function SMEInterviewPage() {
         </div>
         {!done && (
           <button
-            onClick={() => { setDone(true); show('Interview ended') }}
-            className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-xs font-medium text-[#1A1A1A] hover:bg-[#F9FAFB] transition-colors"
+            onClick={async () => {
+              setEnding(true)
+              try {
+                await endInterview(id)
+              } catch {}
+              setDone(true)
+              show('Interview ended')
+              setEnding(false)
+            }}
+            disabled={ending}
+            className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-xs font-medium text-[#1A1A1A] hover:bg-[#F9FAFB] disabled:opacity-50 transition-colors"
           >
-            End Interview
+            {ending ? 'Ending…' : 'End Interview'}
           </button>
         )}
       </div>

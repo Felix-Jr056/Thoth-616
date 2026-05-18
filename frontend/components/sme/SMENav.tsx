@@ -5,7 +5,8 @@ import { initials } from '@/lib/utils'
 
 const NAV = [
   { href: '/sme/dashboard', label: 'Dashboard' },
-  { href: '/sme/knowledge', label: 'Knowledge Approval' },
+  { href: '/sme/materials', label: 'Materials' },
+  { href: '/sme/knowledge', label: 'Knowledge' },
 ]
 
 export function SMENav({ name }: { name?: string }) {

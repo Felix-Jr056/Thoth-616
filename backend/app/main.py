@@ -1,5 +1,10 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env into os.environ before any module-level code reads os.getenv()
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
 from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

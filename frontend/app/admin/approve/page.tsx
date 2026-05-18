@@ -130,7 +130,10 @@ export default function AdminApprovePage() {
       await adminApproveKnowledge(entryId)
       setEntries(prev => prev.filter(e => e.entry_id !== entryId))
       show('Entry approved and added to knowledge base')
-    } catch (e: any) { show(e.message || 'Approval failed', 'error') }
+    } catch (e: any) {
+      if (e.status === 409) show('This entry has already been approved or is in an invalid state.', 'error')
+      else show(e.message || 'Approval failed', 'error')
+    }
   }
 
   const handleReject = async (entryId: string, reason: string) => {
@@ -138,7 +141,10 @@ export default function AdminApprovePage() {
       await rejectKnowledge(entryId, reason)
       setEntries(prev => prev.filter(e => e.entry_id !== entryId))
       show('Entry rejected — SME has been notified')
-    } catch (e: any) { show(e.message || 'Rejection failed', 'error') }
+    } catch (e: any) {
+      if (e.status === 409) show('This entry has already been rejected.', 'error')
+      else show(e.message || 'Rejection failed', 'error')
+    }
   }
 
   return (
