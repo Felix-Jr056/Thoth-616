@@ -9,7 +9,6 @@ from app.config import settings
 TASK_MODEL_MAP: dict[str, str] = {
     # --- Mini model: classification, judgment, follow-up generation ---
     "clarify_prompt":            settings.LLM_MINI_MODEL,
-    "intent_classify":           settings.LLM_MINI_MODEL,
     "interview_topic":           settings.LLM_MINI_MODEL,
     "interview_refine_conclude": settings.LLM_MINI_MODEL,
     "interview_followup":        settings.LLM_MINI_MODEL,

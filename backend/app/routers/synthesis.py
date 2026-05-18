@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.dependencies import synthesis_service
+from app.middleware.auth import verify_token
 from app.schemas.synthesis import SynthesisRequest, SynthesisResponse
 
-router = APIRouter(prefix="/synthesis", tags=["synthesis"])
+router = APIRouter(prefix="/synthesis", tags=["synthesis"], dependencies=[Depends(verify_token)])
 
 
 @router.post("", response_model=SynthesisResponse)

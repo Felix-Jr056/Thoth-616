@@ -1,9 +1,7 @@
-import os
 from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
+from app.config import settings
 
-MODEL = "text-embedding-3-small"
-DIM = 1024  # matches DB VECTOR(1024) schema; OpenAI supports custom dimensions
 _CHARS_PER_TOKEN = 4
 
 
@@ -22,7 +20,7 @@ class EmbeddingService:
     def __init__(self, client=None):
         # Embeddings go directly to OpenAI using dedicated OPENAI_API_KEY
         self._client = client or AsyncOpenAI(
-            api_key=os.getenv("OPENAI_API_KEY"),
+            api_key=settings.OPENAI_API_KEY,
         )
 
     async def embed_text(self, text: str) -> list[float]:
@@ -45,8 +43,8 @@ class EmbeddingService:
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
     async def _embed(self, texts: list[str]) -> list[list[float]]:
         response = await self._client.embeddings.create(
-            model=MODEL,
+            model=settings.EMBEDDING_MODEL,
             input=texts,
-            dimensions=DIM,
+            dimensions=settings.EMBEDDING_DIM,
         )
         return [item.embedding for item in response.data]

@@ -65,6 +65,7 @@ class InterviewService:
             topic=specialization,
             requested_by=requested_by,
             admin_note=admin_note,
+            agenda=agenda,
         )
         interview_id = interview["id"]
 
@@ -103,6 +104,39 @@ class InterviewService:
             "topic_index": 0,
             "total_topics": len(agenda),
         }
+
+    async def initialize_from_benchmark(
+        self, interview_id: str, sme, topic: str
+    ) -> None:
+        """Background initialisation for benchmark-created interviews."""
+        try:
+            sme_profile = {
+                "name": getattr(sme, "name", ""),
+                "role": getattr(sme, "role", ""),
+                "department": getattr(sme, "department", ""),
+                "specialization": topic,
+                "responsible_products": list(getattr(sme, "responsible_products", []) or []),
+                "sub_expertise": list(getattr(sme, "sub_expertise", []) or []),
+                "recorded_topics": [],
+            }
+            first_question, _ = await self._generate_topic_question(
+                agenda_item=topic,
+                sme_profile=sme_profile,
+            )
+            self._state[interview_id] = {
+                "sme_profile": sme_profile,
+                "agenda": [topic],
+                "specialization": topic,
+                "topic_index": 0,
+                "topic_question": first_question,
+                "turn_count": 0,
+                "refined_summary": "",
+                "prev_topic_index": None,
+                "prev_topic_question": None,
+                "completed": False,
+            }
+        except Exception:
+            logger.exception("initialize_from_benchmark failed for %s", interview_id)
 
     async def submit_answer(self, interview_id: str, sme_response: str) -> dict:
         if self._state.get(interview_id, {}).get("completed"):
@@ -192,6 +226,7 @@ class InterviewService:
             state["topic_question"] = next_question
             state["turn_count"] = 0
             state["refined_summary"] = ""
+            await self._repo.update_topic_index(interview_id, next_topic_index)
             return {
                 "type": "next_topic",
                 "question": next_question,
@@ -289,6 +324,7 @@ class InterviewService:
         state["topic_question"] = next_question
         state["turn_count"] = 0
         state["refined_summary"] = ""
+        await self._repo.update_topic_index(interview_id, next_topic_index)
 
         return {
             "type": "next_topic",
@@ -315,11 +351,11 @@ class InterviewService:
 
     async def _reconstruct_state(self, interview_id: str, data: dict) -> dict:
         """Best-effort reconstruction after a service restart (in-memory state lost)."""
-        summaries = await self._repo.get_all_topic_summaries(interview_id)
-        topic_index = len(summaries)
+        agenda = await self._repo.get_agenda(interview_id)
+        topic_index = await self._repo.get_current_topic_index(interview_id)
         specialization = data["interview"].get("topic", "")
 
-        topic_question = "Please continue — what else can you share on this topic?"
+        summaries = await self._repo.get_all_topic_summaries(interview_id)
         refined_summary = ""
         prev_topic_index = None
         prev_topic_question = None
@@ -330,17 +366,32 @@ class InterviewService:
             prev_topic_index = last["topic_index"]
             prev_topic_question = last["topic_question"]
 
+        # Derive turn_count from persisted turns so the force-conclude branch
+        # at turn >= 10 stays reachable after a service restart.
+        db_turns = data.get("turns", []) if isinstance(data, dict) else []
+        turn_count = len(db_turns)
+
+        sme_profile = {
+            "name": "", "role": "", "department": "",
+            "specialization": specialization,
+            "responsible_products": [], "sub_expertise": [], "recorded_topics": [],
+        }
+
+        if agenda and topic_index < len(agenda):
+            topic_question, _ = await self._generate_topic_question(
+                agenda_item=agenda[topic_index],
+                sme_profile=sme_profile,
+            )
+        else:
+            topic_question = "Please continue — what else can you share on this topic?"
+
         state = {
-            "sme_profile": {
-                "name": "", "role": "", "department": "",
-                "specialization": specialization,
-                "responsible_products": [], "sub_expertise": [], "recorded_topics": [],
-            },
-            "agenda": [],
+            "sme_profile": sme_profile,
+            "agenda": agenda,
             "specialization": specialization,
             "topic_index": topic_index,
             "topic_question": topic_question,
-            "turn_count": 0,
+            "turn_count": turn_count,
             "refined_summary": refined_summary,
             "prev_topic_index": prev_topic_index,
             "prev_topic_question": prev_topic_question,

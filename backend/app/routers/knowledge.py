@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.middleware.auth import verify_token
@@ -41,13 +41,19 @@ async def get_knowledge(entry_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.put("/knowledge/{entry_id}", response_model=KnowledgeRead)
 async def update_knowledge(
-    entry_id: str, body: KnowledgeUpdate, db: AsyncSession = Depends(get_db)
+    request: Request, entry_id: str, body: KnowledgeUpdate, db: AsyncSession = Depends(get_db)
 ):
     repo = KnowledgeRepository(db)
     try:
-        return await repo.update_content(entry_id, body.content)
+        result = await repo.update_content(entry_id, body.content)
     except ValueError:
         raise HTTPException(status_code=404, detail="Knowledge entry not found")
+    cache = getattr(request.app.state.query_service, "_cache", None)
+    if cache is not None:
+        await cache.invalidate(entry_id)
+    return result
+
+
 
 
 @router.post("/knowledge/{entry_id}/approve", response_model=KnowledgeApproveResponse)
@@ -67,20 +73,14 @@ async def sme_approve(entry_id: str, db: AsyncSession = Depends(get_db)):
 
 
 async def _try_embed_knowledge(entry_id: str, content: str) -> None:
-    """
-    Background task: chunk and embed approved knowledge entry.
-    D's chunk_and_embed_knowledge(content) returns list of (chunk_text, vector).
-    """
+    """Background task: chunk and embed approved knowledge entry."""
     try:
-        from app.ai_core.embedding_client import EmbeddingService
+        from app.dependencies import embedding
         from app.db import AsyncSessionLocal
+        chunks = await embedding.chunk_and_embed_knowledge(content)
         async with AsyncSessionLocal() as db:
-            embedding_service = EmbeddingService()
-            chunks = await embedding_service.chunk_and_embed_knowledge(content)
             from app.repositories.knowledge_repository import KnowledgeRepository as KR
             await KR(db).store_chunks(entry_id, chunks)
-    except ImportError:
-        pass
     except Exception:
         pass
 
@@ -111,7 +111,7 @@ async def admin_approve(
 
 @router.post("/knowledge/{entry_id}/reject", response_model=KnowledgeRejectResponse)
 async def reject_knowledge(
-    entry_id: str, body: KnowledgeReject, db: AsyncSession = Depends(get_db)
+    request: Request, entry_id: str, body: KnowledgeReject, db: AsyncSession = Depends(get_db)
 ):
     repo = KnowledgeRepository(db)
     try:
@@ -120,6 +120,9 @@ async def reject_knowledge(
         raise HTTPException(status_code=404, detail="Knowledge entry not found")
     except InvalidStateError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    cache = getattr(request.app.state.query_service, "_cache", None)
+    if cache is not None:
+        await cache.invalidate(entry_id)
     return KnowledgeRejectResponse(
         entry_id=entry.entry_id,
         status=entry.status,
@@ -135,7 +138,7 @@ async def _synthesize_content(
     summaries: list[dict],
     material_texts: list[str],
 ) -> str:
-    """Call C's LLM client to synthesize topic summaries + materials into text."""
+    """Call LLM to synthesize topic summaries + materials into structured text."""
     from app.dependencies import llm
 
     parts = []
@@ -145,22 +148,18 @@ async def _synthesize_content(
         parts.append(f"Supporting Material {j + 1}:\n{text[:4000]}")
     formatted = "\n\n".join(parts)
 
-    template = (_PROMPTS_DIR / "synthesis_generate.md").read_text(encoding="utf-8")
-    prompt = (
-        template
-        .replace("{sme_name}", sme_name)
-        .replace("{specialization}", specialization)
-        .replace("{topic_summaries_formatted}", formatted)
+    response = await llm.call(
+        "synthesis_compose",
+        {
+            "sme_name": sme_name,
+            "specialization": specialization,
+            "topic_summaries_formatted": formatted,
+        },
+        response_format="json",
     )
 
-    response = await llm.chat(
-        messages=[{"role": "user", "content": prompt}],
-        model=llm.synthesis_model,
-        max_tokens=4000,
-    )
-
+    data = response.json or {}
     try:
-        data = json.loads(response.content.strip())
         topics = data.get("topics", [])
         out = []
         if data.get("summary"):
@@ -169,9 +168,9 @@ async def _synthesize_content(
             out.append(f"### {topic.get('title', 'Topic')}\n\n{topic.get('content', '')}")
             if topic.get("caveats"):
                 out.append("**Caveats:** " + "; ".join(topic["caveats"]))
-        return "\n\n".join(out) if out else response.content.strip()
-    except (json.JSONDecodeError, KeyError, TypeError):
-        return response.content.strip()
+        return "\n\n".join(out) if out else response.text.strip()
+    except (KeyError, TypeError):
+        return response.text.strip()
 
 
 @router.post(
@@ -199,6 +198,24 @@ async def synthesize_knowledge(
     for iid in body.interview_ids:
         summaries = await iv_repo.get_all_topic_summaries(iid)
         all_summaries.extend(summaries)
+
+    # Fallback: if no topic summaries exist, synthesise from raw turns
+    # (benchmark typically sends only 1-2 turns; CONCLUDE fires at turn >=10)
+    if not all_summaries:
+        for iid in body.interview_ids:
+            interview_data = await iv_repo.get_with_turns(iid)
+            if interview_data is None:
+                continue
+            turns = interview_data.turns if hasattr(interview_data, "turns") else []
+            if turns:
+                combined = "\n\n".join(
+                    f"Turn {t.turn_number}: {t.sme_response}" for t in turns
+                )
+                all_summaries.append({
+                    "topic_index": 0,
+                    "topic_question": interview_data.topic,
+                    "refined_content": combined,
+                })
 
     # Collect material raw texts
     mat_repo = MaterialRepository(db)
