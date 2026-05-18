@@ -1,11 +1,15 @@
 import asyncio
 from datetime import datetime, timezone
 
+from app.config import settings
+
 DISCLAIMER = (
     "This information is based on approved expert knowledge "
     "and does not constitute professional advice."
 )
-_ANSWER_THRESHOLD = 0.7
+# kb_max >= _KB_SKIP_CLARIFY → skip clarify_prompt (high-confidence, answer directly)
+# kb_max in [KB_SIMILARITY_THRESHOLD, _KB_SKIP_CLARIFY) → run clarify_prompt, then answer if "ready"
+_KB_SKIP_CLARIFY = 0.65
 _MULTI_SME_GAP = 0.05
 _MAX_CLARIFY_TRIES = 2
 
@@ -34,13 +38,14 @@ def _format_sme_list(sme_results) -> str:
 
 
 class QueryService:
-    def __init__(self, retrieval, llm_client, session_repo, embedding, sme_repo=None, qa_cache=None):
+    def __init__(self, retrieval, llm_client, session_repo, embedding, sme_repo=None, qa_cache=None, query_log=None):
         self._retrieval = retrieval
         self._llm = llm_client
         self._session_repo = session_repo
         self._embedding = embedding
         self._sme_repo = sme_repo
         self._cache = qa_cache  # QACacheService | None
+        self._query_log = query_log  # QueryLogRepository adapter | None
 
     async def _get_database_topics(self) -> list[str]:
         if self._sme_repo is None:
@@ -50,6 +55,10 @@ class QueryService:
             f"{s.specialization} — sub-areas: {', '.join(s.sub_areas)}"
             for s in smes
         ]
+
+    def _log(self, question: str, session_id: str, response_type: str) -> None:
+        if self._query_log is not None:
+            asyncio.create_task(self._query_log.log(question, session_id, response_type))
 
     async def handle_query(self, question: str, session_id: str) -> dict:
         session = await self._session_repo.get_or_create(session_id)
@@ -69,13 +78,17 @@ class QueryService:
         if self._cache is not None:
             cache_check = await self._cache.check(question, query_vec)
             if cache_check.hit_type == "exact":
-                # Increment hit counter in background, return immediately
                 if cache_check.cache_id:
                     asyncio.create_task(self._cache._repo.increment_hit(cache_check.cache_id))
+                # Fix #1: hydrate full sources from stored entry IDs
+                sources = []
+                if cache_check.source_entry_ids:
+                    sources = await self._retrieval.get_sources_for_entries(cache_check.source_entry_ids)
+                self._log(question, session_id, "answer")
                 return {
                     "answer": cache_check.answer,
                     "grounded": True,
-                    "sources": [],
+                    "sources": sources,
                     "disclaimer": DISCLAIMER,
                     "session_id": session_id,
                     "response_type": "answer",
@@ -93,8 +106,15 @@ class QueryService:
             self._retrieval.search_kb(query_vec, top_k=5),
             self._retrieval.search_smes(query_vec, top_k=3),
         )
+        kb_max = max((r.similarity for r in kb_results), default=0.0)
 
-        # Step 1: Decide path via clarify_prompt (topics fetched live from DB)
+        # Fix #3: high-confidence KB hit — skip clarify_prompt entirely
+        if kb_max >= _KB_SKIP_CLARIFY:
+            result = await self._answer(question, kb_results, session_id, query_vec, cache_hint, cache_result_id)
+            self._log(question, session_id, result.get("response_type", "answer"))
+            return result
+
+        # Ambiguous zone — run clarify_prompt to classify the query
         database_topics = await self._get_database_topics()
         clarify_resp = await self._llm.call(
             "clarify_prompt",
@@ -109,18 +129,21 @@ class QueryService:
         decision = clarify_resp.json or {}
         path = decision.get("path", "ready")
 
-        # not_related or needs_clarify — loop back (max 2 tries)
-        if path in ("not_related", "needs_clarify") and tries < _MAX_CLARIFY_TRIES:
-            clarifying_q = decision.get("clarifying_question") or (
-                "Could you clarify your question? It doesn't seem to match our knowledge base topics."
-                if path == "not_related"
-                else "Could you provide more details?"
-            )
+        # not_related — immediately route to admin; no clarification loop
+        if path == "not_related":
+            result = await self._route_sme(question, sme_results, session_id)
+            self._log(question, session_id, result.get("response_type"))
+            return result
+
+        # needs_clarify — loop back (max 2 tries)
+        if path == "needs_clarify" and tries < _MAX_CLARIFY_TRIES:
+            clarifying_q = decision.get("clarifying_question") or "Could you provide more details?"
             await self._session_repo.set_pending(
                 session_id,
                 last_question=question,
                 pending_context={"clarify_tries": tries + 1},
             )
+            self._log(question, session_id, "clarification")
             return {
                 "answer": clarifying_q,
                 "grounded": False,
@@ -132,13 +155,14 @@ class QueryService:
                 "timestamp": _now_iso(),
             }
 
-        # Step 2: ready (or max tries reached) — check kb_max
-        kb_max = max((r.similarity for r in kb_results), default=0.0)
-
-        if kb_max >= _ANSWER_THRESHOLD:
-            return await self._answer(question, kb_results, session_id, query_vec, cache_hint, cache_result_id)
+        # Fix #8: use settings threshold (single source of truth)
+        if kb_max >= settings.KB_SIMILARITY_THRESHOLD:
+            result = await self._answer(question, kb_results, session_id, query_vec, cache_hint, cache_result_id)
         else:
-            return await self._route_sme(question, sme_results, session_id)
+            result = await self._route_sme(question, sme_results, session_id)
+
+        self._log(question, session_id, result.get("response_type"))
+        return result
 
     async def _answer(
         self,
@@ -167,8 +191,7 @@ class QueryService:
         ][:3]
         entry_ids = [r.entry_id for r in kb_results if r.similarity >= 0.6][:3]
 
-        # Store in cache — fire-and-forget (create_task is correct here:
-        # we don't need the result and no lifecycle management is required)
+        # Store in cache — fire-and-forget
         if self._cache is not None:
             asyncio.create_task(
                 self._cache.store_async(

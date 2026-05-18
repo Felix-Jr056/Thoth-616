@@ -191,6 +191,20 @@ class InterviewRepository:
         row = result.scalar_one_or_none()
         return row if row is not None else 0
 
+    async def set_topic_question(self, interview_id: str, question: str) -> None:
+        await self.db.execute(
+            update(Interview)
+            .where(Interview.id == interview_id)
+            .values(current_topic_question=question)
+        )
+        await self.db.commit()
+
+    async def get_topic_question(self, interview_id: str) -> str | None:
+        result = await self.db.execute(
+            select(Interview.current_topic_question).where(Interview.id == interview_id)
+        )
+        return result.scalar_one_or_none()
+
     def _to_schema(self, interview: Interview) -> InterviewRead:
         return InterviewRead(
             interview_id=interview.id,

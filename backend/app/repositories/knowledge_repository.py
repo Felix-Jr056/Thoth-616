@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from app.models.knowledge import KnowledgeEntry, KnowledgeChunk
 from app.schemas.knowledge import KnowledgeRead, SourcesSchema
 from app.repositories.utils import new_id
+from app.models.sme import SME
 
 
 ALLOWED_TRANSITIONS = {
@@ -157,6 +158,19 @@ class KnowledgeRepository:
             .where(KnowledgeEntry.status == "approved")
         )
         return [row[0] for row in result.fetchall()]
+
+    async def get_sources_for_entries(self, entry_ids: list[str]) -> list[dict]:
+        if not entry_ids:
+            return []
+        result = await self.db.execute(
+            select(KnowledgeEntry.id, KnowledgeEntry.topic, SME.name.label("sme_name"))
+            .join(SME, KnowledgeEntry.sme_id == SME.id)
+            .where(KnowledgeEntry.id.in_(entry_ids))
+        )
+        return [
+            {"entry_id": row.id, "topic": row.topic, "sme_name": row.sme_name}
+            for row in result.fetchall()
+        ]
 
     def _to_schema(self, entry: KnowledgeEntry) -> KnowledgeRead:
         return KnowledgeRead(

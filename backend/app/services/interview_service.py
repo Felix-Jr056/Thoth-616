@@ -97,6 +97,7 @@ class InterviewService:
             "prev_topic_question": None,
             "completed": False,
         }
+        await self._repo.set_topic_question(interview_id, first_question)
 
         return {
             "interview_id": interview_id,
@@ -135,6 +136,7 @@ class InterviewService:
                 "prev_topic_question": None,
                 "completed": False,
             }
+            await self._repo.set_topic_question(interview_id, first_question)
         except Exception:
             logger.exception("initialize_from_benchmark failed for %s", interview_id)
 
@@ -227,6 +229,7 @@ class InterviewService:
             state["turn_count"] = 0
             state["refined_summary"] = ""
             await self._repo.update_topic_index(interview_id, next_topic_index)
+            await self._repo.set_topic_question(interview_id, next_question)
             return {
                 "type": "next_topic",
                 "question": next_question,
@@ -325,6 +328,7 @@ class InterviewService:
         state["turn_count"] = 0
         state["refined_summary"] = ""
         await self._repo.update_topic_index(interview_id, next_topic_index)
+        await self._repo.set_topic_question(interview_id, next_question)
 
         return {
             "type": "next_topic",
@@ -377,7 +381,10 @@ class InterviewService:
             "responsible_products": [], "sub_expertise": [], "recorded_topics": [],
         }
 
-        if agenda and topic_index < len(agenda):
+        stored_question = await self._repo.get_topic_question(interview_id)
+        if stored_question:
+            topic_question = stored_question
+        elif agenda and topic_index < len(agenda):
             topic_question, _ = await self._generate_topic_question(
                 agenda_item=agenda[topic_index],
                 sme_profile=sme_profile,

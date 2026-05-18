@@ -25,6 +25,11 @@ class Interview(Base):
         server_default='0',
         comment="Index into agenda_json indicating the topic currently being captured",
     )
+    current_topic_question = Column(
+        Text,
+        nullable=True,
+        comment="The generated opening question for the current topic — persisted to survive restarts",
+    )
 
     sme = relationship("SME", back_populates="interviews")
     turns = relationship("InterviewTurn", back_populates="interview", cascade="all, delete", order_by="InterviewTurn.turn_number")

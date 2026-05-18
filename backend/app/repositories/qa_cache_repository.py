@@ -16,7 +16,8 @@ class QACacheRepository:
     ) -> dict:
         vec_str = f"[{','.join(str(x) for x in embedding)}]"
         sql = text("""
-            SELECT id, answer, 1 - (question_embedding <=> CAST(:vec AS vector)) AS similarity
+            SELECT id, answer, source_entry_ids,
+                   1 - (question_embedding <=> CAST(:vec AS vector)) AS similarity
             FROM qa_cache
             ORDER BY question_embedding <=> CAST(:vec AS vector)
             LIMIT 1
