@@ -83,7 +83,7 @@ class SynthesisService:
             sme_id=sme_id,
             topic=specialization,
             content=content.model_dump_json(),
-            sources_json={"interview_id": interview_id},
+            sources_json={"interviews": [interview_id], "materials": []},
             source_interview_id=interview_id,
         )
 

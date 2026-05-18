@@ -54,6 +54,8 @@ async def update_knowledge(
     return result
 
 
+
+
 @router.post("/knowledge/{entry_id}/approve", response_model=KnowledgeApproveResponse)
 async def sme_approve(entry_id: str, db: AsyncSession = Depends(get_db)):
     repo = KnowledgeRepository(db)
@@ -71,20 +73,14 @@ async def sme_approve(entry_id: str, db: AsyncSession = Depends(get_db)):
 
 
 async def _try_embed_knowledge(entry_id: str, content: str) -> None:
-    """
-    Background task: chunk and embed approved knowledge entry.
-    D's chunk_and_embed_knowledge(content) returns list of (chunk_text, vector).
-    """
+    """Background task: chunk and embed approved knowledge entry."""
     try:
-        from app.ai_core.embedding_client import EmbeddingService
+        from app.dependencies import embedding
         from app.db import AsyncSessionLocal
+        chunks = await embedding.chunk_and_embed_knowledge(content)
         async with AsyncSessionLocal() as db:
-            embedding_service = EmbeddingService()
-            chunks = await embedding_service.chunk_and_embed_knowledge(content)
             from app.repositories.knowledge_repository import KnowledgeRepository as KR
             await KR(db).store_chunks(entry_id, chunks)
-    except ImportError:
-        pass
     except Exception:
         pass
 
@@ -202,6 +198,24 @@ async def synthesize_knowledge(
     for iid in body.interview_ids:
         summaries = await iv_repo.get_all_topic_summaries(iid)
         all_summaries.extend(summaries)
+
+    # Fallback: if no topic summaries exist, synthesise from raw turns
+    # (benchmark typically sends only 1-2 turns; CONCLUDE fires at turn >=10)
+    if not all_summaries:
+        for iid in body.interview_ids:
+            interview_data = await iv_repo.get_with_turns(iid)
+            if interview_data is None:
+                continue
+            turns = interview_data.turns if hasattr(interview_data, "turns") else []
+            if turns:
+                combined = "\n\n".join(
+                    f"Turn {t.turn_number}: {t.sme_response}" for t in turns
+                )
+                all_summaries.append({
+                    "topic_index": 0,
+                    "topic_question": interview_data.topic,
+                    "refined_content": combined,
+                })
 
     # Collect material raw texts
     mat_repo = MaterialRepository(db)

@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.dependencies import interview_repo, interview_service
+from app.middleware.auth import verify_token
 from app.schemas.interview import (
     CreateInterviewResponse,
     ResumeResponse,
@@ -11,7 +12,7 @@ from app.schemas.interview import (
 )
 from app.schemas.sme_profile import AdminInitiateInterviewRequest
 
-router = APIRouter(prefix="/interviews", tags=["interviews"])
+router = APIRouter(prefix="/interviews", tags=["interviews"], dependencies=[Depends(verify_token)])
 
 
 # ------------------------------------------------------------------ request schemas

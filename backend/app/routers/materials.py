@@ -48,10 +48,9 @@ async def _extract_text(raw: bytes, file_type: str) -> str:
 
 async def _embed(mid: str, text: str) -> None:
     try:
-        from app.ai_core.embedding_client import EmbeddingService
+        from app.dependencies import embedding
         from app.db import AsyncSessionLocal
-        svc = EmbeddingService()
-        chunks = await svc.chunk_and_embed_knowledge(text)
+        chunks = await embedding.chunk_and_embed_knowledge(text)
         async with AsyncSessionLocal() as db2:
             await MaterialRepository(db2).store_chunks(mid, chunks)
     except Exception:

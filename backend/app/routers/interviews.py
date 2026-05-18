@@ -1,5 +1,3 @@
-import asyncio
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timezone
@@ -29,9 +27,9 @@ async def create_interview(
     if not sme:
         raise HTTPException(status_code=404, detail="SME not found")
     interview = await repo.create(sme_id=sme_id, topic=body.topic, agenda=[body.topic])
-    asyncio.create_task(
-        interview_service.initialize_from_benchmark(interview.interview_id, sme, body.topic)
-    )
+    # Await directly — eliminates the race window where a POST /turns arrives
+    # before _state is populated and triggers a redundant _reconstruct_state call.
+    await interview_service.initialize_from_benchmark(interview.interview_id, sme, body.topic)
     return interview
 
 
@@ -70,7 +68,6 @@ async def submit_interview_turn(
     Delegates to C's InterviewService for LLM logic.
     """
     from app.ai_core.token_tracker import TokenTracker
-    TokenTracker.init()
 
     result = await interview_service.submit_answer(
         interview_id=interview_id,

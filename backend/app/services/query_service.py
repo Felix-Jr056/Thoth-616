@@ -34,12 +34,13 @@ def _format_sme_list(sme_results) -> str:
 
 
 class QueryService:
-    def __init__(self, retrieval, llm_client, session_repo, embedding, sme_repo=None):
+    def __init__(self, retrieval, llm_client, session_repo, embedding, sme_repo=None, qa_cache=None):
         self._retrieval = retrieval
         self._llm = llm_client
         self._session_repo = session_repo
         self._embedding = embedding
-        self._sme_repo = sme_repo  # used to fetch live topic list on every query
+        self._sme_repo = sme_repo
+        self._cache = qa_cache  # QACacheService | None
 
     async def _get_database_topics(self) -> list[str]:
         if self._sme_repo is None:
@@ -59,8 +60,33 @@ class QueryService:
             question = f"{session.last_question} [clarification: {question}]"
             await self._session_repo.clear_pending(session_id)
 
-        # Embed once — used for all retrieval
+        # Embed once — used for all retrieval and cache lookup
         query_vec = await self._embedding.embed_text(question)
+
+        # QA cache check — exact hit short-circuits before any LLM call
+        cache_hint: str | None = None
+        cache_result_id: str | None = None
+        if self._cache is not None:
+            cache_check = await self._cache.check(question, query_vec)
+            if cache_check.hit_type == "exact":
+                # Increment hit counter in background, return immediately
+                if cache_check.cache_id:
+                    asyncio.create_task(self._cache._repo.increment_hit(cache_check.cache_id))
+                return {
+                    "answer": cache_check.answer,
+                    "grounded": True,
+                    "sources": [],
+                    "disclaimer": DISCLAIMER,
+                    "session_id": session_id,
+                    "response_type": "answer",
+                    "routed_to": None,
+                    "timestamp": _now_iso(),
+                    "usage": None,
+                }
+            elif cache_check.hit_type == "soft":
+                # Pass prior answer as hint context for the LLM
+                cache_hint = cache_check.answer
+                cache_result_id = cache_check.cache_id
 
         # Parallel retrieval
         kb_results, sme_results = await asyncio.gather(
@@ -68,7 +94,7 @@ class QueryService:
             self._retrieval.search_smes(query_vec, top_k=3),
         )
 
-        # Step 1: Haiku decides path via clarify_prompt (topics fetched live from DB)
+        # Step 1: Decide path via clarify_prompt (topics fetched live from DB)
         database_topics = await self._get_database_topics()
         clarify_resp = await self._llm.call(
             "clarify_prompt",
@@ -110,16 +136,28 @@ class QueryService:
         kb_max = max((r.similarity for r in kb_results), default=0.0)
 
         if kb_max >= _ANSWER_THRESHOLD:
-            return await self._answer(question, kb_results, session_id)
+            return await self._answer(question, kb_results, session_id, query_vec, cache_hint, cache_result_id)
         else:
             return await self._route_sme(question, sme_results, session_id)
 
-    async def _answer(self, question: str, kb_results, session_id: str) -> dict:
+    async def _answer(
+        self,
+        question: str,
+        kb_results,
+        session_id: str,
+        query_vec: list[float],
+        cache_hint: str | None = None,
+        cache_result_id: str | None = None,
+    ) -> dict:
+        # cache_hint is passed as an explicit template variable so that
+        # PromptLoader's StrictUndefined does not throw when it is absent.
+        # The template's {% if cache_hint %} block handles the empty-string case.
         answer_resp = await self._llm.call(
             "answer_generate",
             inputs={
                 "question": question,
                 "kb_chunks": _format_kb(kb_results),
+                "cache_hint": cache_hint or "",
             },
         )
         sources = [
@@ -127,6 +165,21 @@ class QueryService:
             for r in kb_results
             if r.similarity >= 0.6
         ][:3]
+        entry_ids = [r.entry_id for r in kb_results if r.similarity >= 0.6][:3]
+
+        # Store in cache — fire-and-forget (create_task is correct here:
+        # we don't need the result and no lifecycle management is required)
+        if self._cache is not None:
+            asyncio.create_task(
+                self._cache.store_async(
+                    question=question,
+                    answer=answer_resp.text,
+                    embedding=query_vec,
+                    entry_ids=entry_ids,
+                    session_id=session_id,
+                )
+            )
+
         return {
             "answer": answer_resp.text,
             "grounded": True,
