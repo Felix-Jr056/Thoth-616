@@ -37,7 +37,15 @@ class SynthesisService:
     ) -> dict:
         summaries = await self._interview_repo.get_all_topic_summaries(interview_id)
         if not summaries:
-            raise ValueError(f"No topic summaries found for interview {interview_id}")
+            # Fallback: use raw turn responses when no topic summaries exist yet
+            data = await self._interview_repo.get_with_turns(interview_id)
+            if data and data.get("turns"):
+                combined = "\n\n".join(
+                    t["sme_response"] for t in data["turns"] if t.get("sme_response")
+                )
+                summaries = [{"topic_question": specialization, "refined_content": combined}]
+        if not summaries:
+            raise ValueError(f"No topic summaries or turns found for interview {interview_id}")
 
         formatted_summaries = "\n\n".join(
             f"Topic {i + 1}: {s['topic_question']}\n{s['refined_content']}"

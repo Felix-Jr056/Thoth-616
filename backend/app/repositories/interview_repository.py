@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from app.models.interview import Interview, InterviewTurn, InterviewTopicSummary
 from app.schemas.interview import (
     InterviewRead, InterviewSummary, InterviewWithTurns, InterviewTurnRead
@@ -17,6 +17,7 @@ class InterviewRepository:
         topic: str,
         requested_by: str | None = None,
         admin_note: str | None = None,
+        agenda: list[str] | None = None,
     ) -> InterviewRead:
         interview = Interview(
             id=new_id("int"),
@@ -25,6 +26,8 @@ class InterviewRepository:
             status="in_progress",
             requested_by=requested_by,
             admin_note=admin_note,
+            agenda_json=agenda if agenda is not None else [topic],
+            current_topic_index=0,
         )
         self.db.add(interview)
         await self.db.commit()
@@ -162,6 +165,31 @@ class InterviewRepository:
             }
             for s in result.scalars().all()
         ]
+
+    async def update_topic_index(self, interview_id: str, index: int) -> None:
+        await self.db.execute(
+            update(Interview)
+            .where(Interview.id == interview_id)
+            .values(current_topic_index=index)
+        )
+        await self.db.commit()
+
+    async def get_agenda(self, interview_id: str) -> list[str]:
+        result = await self.db.execute(
+            select(Interview.agenda_json, Interview.current_topic_index)
+            .where(Interview.id == interview_id)
+        )
+        row = result.one_or_none()
+        if row is None:
+            return []
+        return row.agenda_json or []
+
+    async def get_current_topic_index(self, interview_id: str) -> int:
+        result = await self.db.execute(
+            select(Interview.current_topic_index).where(Interview.id == interview_id)
+        )
+        row = result.scalar_one_or_none()
+        return row if row is not None else 0
 
     def _to_schema(self, interview: Interview) -> InterviewRead:
         return InterviewRead(

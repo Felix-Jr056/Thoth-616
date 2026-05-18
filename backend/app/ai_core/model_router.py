@@ -11,6 +11,8 @@ TASK_MODEL_MAP: dict[str, str] = {
     "clarify_prompt":            settings.LLM_MINI_MODEL,
     "intent_classify":           settings.LLM_MINI_MODEL,
     "interview_topic":           settings.LLM_MINI_MODEL,
+    "interview_refine":          settings.LLM_MINI_MODEL,
+    "interview_conclude":        settings.LLM_MINI_MODEL,
     "interview_refine_conclude": settings.LLM_MINI_MODEL,
     "interview_followup":        settings.LLM_MINI_MODEL,
     "interview_planning":        settings.LLM_MINI_MODEL,

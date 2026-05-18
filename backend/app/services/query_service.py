@@ -1,11 +1,11 @@
 import asyncio
 from datetime import datetime, timezone
-from app.config import settings
 
 DISCLAIMER = (
     "This information is based on approved expert knowledge "
     "and does not constitute professional advice."
 )
+_ANSWER_THRESHOLD = 0.7
 _MULTI_SME_GAP = 0.05
 _MAX_CLARIFY_TRIES = 2
 
@@ -14,18 +14,13 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _format_kb(results, cache_hint: str | None = None) -> str:
-    chunks = []
-    if cache_hint:
-        chunks.append(f"[CACHED CONTEXT]\n{cache_hint}")
-    if results:
-        chunks.append(
-            "\n".join(
-                f"[{r.entry_id}] (similarity: {r.similarity:.2f}) {r.topic}: {r.chunk_text}"
-                for r in results
-            )
-        )
-    return "\n\n".join(chunks) if chunks else "No relevant knowledge found."
+def _format_kb(results) -> str:
+    if not results:
+        return "No relevant knowledge found."
+    return "\n".join(
+        f"[{r.entry_id}] (similarity: {r.similarity:.2f}) {r.topic}: {r.chunk_text}"
+        for r in results
+    )
 
 
 def _format_sme_list(sme_results) -> str:
@@ -39,13 +34,12 @@ def _format_sme_list(sme_results) -> str:
 
 
 class QueryService:
-    def __init__(self, retrieval, llm_client, session_repo, embedding, sme_repo=None, qa_cache_service=None):
+    def __init__(self, retrieval, llm_client, session_repo, embedding, sme_repo=None):
         self._retrieval = retrieval
         self._llm = llm_client
         self._session_repo = session_repo
         self._embedding = embedding
-        self._sme_repo = sme_repo
-        self._cache = qa_cache_service
+        self._sme_repo = sme_repo  # used to fetch live topic list on every query
 
     async def _get_database_topics(self) -> list[str]:
         if self._sme_repo is None:
@@ -59,32 +53,14 @@ class QueryService:
     async def handle_query(self, question: str, session_id: str) -> dict:
         session = await self._session_repo.get_or_create(session_id)
 
+        # Restore context if previous turn was a clarifying question
         tries = (session.pending_context or {}).get("clarify_tries", 0) if hasattr(session, "pending_context") else 0
         if session.pending_clarification:
             question = f"{session.last_question} [clarification: {question}]"
             await self._session_repo.clear_pending(session_id)
 
+        # Embed once — used for all retrieval
         query_vec = await self._embedding.embed_text(question)
-
-        # Cache check — before retrieval to short-circuit on exact hits
-        cache_hit = None
-        cache_hint = None
-        if self._cache is not None:
-            cache_hit = await self._cache.check(question, query_vec)
-            if cache_hit.hit_type == "exact":
-                asyncio.create_task(self._inc_hit(cache_hit.cache_id))
-                return {
-                    "answer": cache_hit.answer,
-                    "grounded": True,
-                    "sources": [],
-                    "disclaimer": DISCLAIMER,
-                    "session_id": session_id,
-                    "response_type": "answer",
-                    "routed_to": None,
-                    "timestamp": _now_iso(),
-                }
-            if cache_hit.hit_type == "soft":
-                cache_hint = cache_hit.answer
 
         # Parallel retrieval
         kb_results, sme_results = await asyncio.gather(
@@ -92,7 +68,7 @@ class QueryService:
             self._retrieval.search_smes(query_vec, top_k=3),
         )
 
-        # Haiku decides path
+        # Step 1: Haiku decides path via clarify_prompt (topics fetched live from DB)
         database_topics = await self._get_database_topics()
         clarify_resp = await self._llm.call(
             "clarify_prompt",
@@ -107,6 +83,7 @@ class QueryService:
         decision = clarify_resp.json or {}
         path = decision.get("path", "ready")
 
+        # not_related or needs_clarify — loop back (max 2 tries)
         if path in ("not_related", "needs_clarify") and tries < _MAX_CLARIFY_TRIES:
             clarifying_q = decision.get("clarifying_question") or (
                 "Could you clarify your question? It doesn't seem to match our knowledge base topics."
@@ -129,26 +106,20 @@ class QueryService:
                 "timestamp": _now_iso(),
             }
 
+        # Step 2: ready (or max tries reached) — check kb_max
         kb_max = max((r.similarity for r in kb_results), default=0.0)
 
-        if kb_max >= settings.KB_SIMILARITY_THRESHOLD:
-            return await self._answer(question, kb_results, session_id, query_vec, cache_hint)
+        if kb_max >= _ANSWER_THRESHOLD:
+            return await self._answer(question, kb_results, session_id)
         else:
             return await self._route_sme(question, sme_results, session_id)
 
-    async def _answer(
-        self,
-        question: str,
-        kb_results,
-        session_id: str,
-        query_vec: list[float] | None = None,
-        cache_hint: str | None = None,
-    ) -> dict:
+    async def _answer(self, question: str, kb_results, session_id: str) -> dict:
         answer_resp = await self._llm.call(
             "answer_generate",
             inputs={
                 "question": question,
-                "kb_chunks": _format_kb(kb_results, cache_hint),
+                "kb_chunks": _format_kb(kb_results),
             },
         )
         sources = [
@@ -156,14 +127,6 @@ class QueryService:
             for r in kb_results
             if r.similarity >= 0.6
         ][:3]
-
-        # Background: store answer in QA cache
-        if self._cache is not None and query_vec is not None:
-            entry_ids = [r.entry_id for r in kb_results if r.similarity >= 0.6]
-            asyncio.create_task(
-                self._cache.store_async(question, answer_resp.text, query_vec, entry_ids, session_id)
-            )
-
         return {
             "answer": answer_resp.text,
             "grounded": True,
@@ -201,9 +164,3 @@ class QueryService:
             "routed_to": routed_to,
             "timestamp": _now_iso(),
         }
-
-    async def _inc_hit(self, cache_id: str) -> None:
-        try:
-            await self._cache._repo.increment_hit(cache_id)
-        except Exception:
-            pass

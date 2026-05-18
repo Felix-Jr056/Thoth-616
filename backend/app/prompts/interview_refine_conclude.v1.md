@@ -23,4 +23,4 @@ New SME response (turn {{ turn_number }}):
 {{ sme_response }}
 
 Respond with:
-{"updated_summary": "<complete integrated summary>", "decision": "CONTINUE | CONCLUDE"}
+{"updated_summary": "<complete integrated summary>", "decision": "CONTINUE | CONCLUDE", "reasoning": "<one sentence explaining which criteria are met or still missing>"}
