@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timezone
@@ -19,15 +21,18 @@ async def create_interview(
     body: InterviewCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new interview record. No LLM call - pure data operation."""
+    """Create a new interview record, then kick off background LLM initialisation."""
     repo = InterviewRepository(db)
-    # Verify SME exists
     from app.repositories.sme_repository import SMERepository
     sme_repo = SMERepository(db)
     sme = await sme_repo.get(sme_id)
     if not sme:
         raise HTTPException(status_code=404, detail="SME not found")
-    return await repo.create(sme_id=sme_id, topic=body.topic)
+    interview = await repo.create(sme_id=sme_id, topic=body.topic, agenda=[body.topic])
+    asyncio.create_task(
+        interview_service.initialize_from_benchmark(interview.interview_id, sme, body.topic)
+    )
+    return interview
 
 
 @router.get("/smes/{sme_id}/interviews", response_model=InterviewListResponse)
@@ -64,6 +69,9 @@ async def submit_interview_turn(
     Benchmark endpoint: submit SME answer, get AI follow-up.
     Delegates to C's InterviewService for LLM logic.
     """
+    from app.ai_core.token_tracker import TokenTracker
+    TokenTracker.init()
+
     result = await interview_service.submit_answer(
         interview_id=interview_id,
         sme_response=body.sme_response,
@@ -80,5 +88,5 @@ async def submit_interview_turn(
         "sme_response": body.sme_response,
         "agent_follow_up": follow_up,
         "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "usage": result.get("usage"),
+        "usage": TokenTracker.collect() or result.get("usage"),
     }

@@ -24,6 +24,7 @@ class DBInterviewRepository:
         topic: str,
         requested_by: str = "sme",
         admin_note: str = "",
+        agenda: list[str] | None = None,
     ) -> dict:
         async with AsyncSessionLocal() as db:
             repo = _DBRepo(db)
@@ -32,6 +33,7 @@ class DBInterviewRepository:
                 topic=topic,
                 requested_by=requested_by or None,
                 admin_note=admin_note or None,
+                agenda=agenda,
             )
             return {
                 "id": result.interview_id,
@@ -114,3 +116,18 @@ class DBInterviewRepository:
         async with AsyncSessionLocal() as db:
             repo = _DBRepo(db)
             return await repo.get_all_topic_summaries(interview_id)
+
+    async def update_topic_index(self, interview_id: str, index: int) -> None:
+        async with AsyncSessionLocal() as db:
+            repo = _DBRepo(db)
+            await repo.update_topic_index(interview_id, index)
+
+    async def get_agenda(self, interview_id: str) -> list[str]:
+        async with AsyncSessionLocal() as db:
+            repo = _DBRepo(db)
+            return await repo.get_agenda(interview_id)
+
+    async def get_current_topic_index(self, interview_id: str) -> int:
+        async with AsyncSessionLocal() as db:
+            repo = _DBRepo(db)
+            return await repo.get_current_topic_index(interview_id)

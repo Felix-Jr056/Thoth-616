@@ -1,10 +1,3 @@
-_SME_FALLBACK_THRESHOLD = 0.3
-
-
-def _get_similarity(r) -> float:
-    return r[1] if isinstance(r, tuple) else getattr(r, "similarity", 0.0)
-
-
 class RetrievalService:
     def __init__(self, kb_repo, sme_repo, embedding):
         self._kb = kb_repo
@@ -15,9 +8,4 @@ class RetrievalService:
         return await self._kb.search_by_embedding(query_vector, top_k)
 
     async def search_smes(self, query_vector: list[float], top_k: int = 3) -> list:
-        results = await self._sme.search_by_embedding(query_vector, top_k)
-        max_sim = max((_get_similarity(r) for r in results), default=0.0)
-        if not results or max_sim < _SME_FALLBACK_THRESHOLD:
-            # Embeddings not yet written — fall back to full SME list
-            return await self._sme.list_all()
-        return results
+        return await self._sme.search_by_embedding(query_vector, top_k)

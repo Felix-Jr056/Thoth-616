@@ -1,6 +1,6 @@
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
@@ -46,9 +46,22 @@ async def _extract_text(raw: bytes, file_type: str) -> str:
     return raw.decode("utf-8", errors="replace").strip()
 
 
+async def _embed(mid: str, text: str) -> None:
+    try:
+        from app.ai_core.embedding_client import EmbeddingService
+        from app.db import AsyncSessionLocal
+        svc = EmbeddingService()
+        chunks = await svc.chunk_and_embed_knowledge(text)
+        async with AsyncSessionLocal() as db2:
+            await MaterialRepository(db2).store_chunks(mid, chunks)
+    except Exception:
+        pass
+
+
 @router.post("/smes/{sme_id}/materials", response_model=MaterialRead, status_code=201)
 async def upload_material(
     sme_id: str,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     title: str = Form(...),
     description: str = Form(None),
@@ -83,21 +96,7 @@ async def upload_material(
         description=description,
     )
 
-    # Trigger background embedding (fire-and-forget)
-    from fastapi import BackgroundTasks
-    async def _embed(mid: str, text: str) -> None:
-        try:
-            from app.ai_core.embedding_client import EmbeddingService
-            from app.db import AsyncSessionLocal
-            svc = EmbeddingService()
-            chunks = await svc.chunk_and_embed_knowledge(text)
-            async with AsyncSessionLocal() as db2:
-                await MaterialRepository(db2).store_chunks(mid, chunks)
-        except Exception:
-            pass
-
-    import asyncio
-    asyncio.create_task(_embed(material.material_id, raw_text))
+    background_tasks.add_task(_embed, material.material_id, raw_text)
 
     return material
 
