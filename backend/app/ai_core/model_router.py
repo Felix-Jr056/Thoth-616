@@ -1,17 +1,33 @@
+# HOW TO ADD A NEW LLM TASK:
+# 1. Create the prompt file at app/prompts/{task_name}.v1.md
+#    Follow the format in app/prompts/EXAMPLE.v1.md
+# 2. Add the task name and model to TASK_MODEL_MAP below
+# 3. Call it with: await llm.call("{task_name}", {"var": value})
+
+from app.config import settings
+
 TASK_MODEL_MAP: dict[str, str] = {
-    # Fast/cheap — classification and path decisions
-    "clarify_prompt":            "openai/gpt-4.1-mini",
-    "intent_classify":           "openai/gpt-4.1-mini",
-    "interview_followup":        "openai/gpt-4.1-mini",
-    "fact_extraction_interview": "openai/gpt-4.1-mini",
-    "fact_extraction_material":  "openai/gpt-4.1-mini",
-    # Full — answer generation and SME routing
-    "answer_generate":   "openai/gpt-4.1",
-    "sme_prompt":        "openai/gpt-4.1",
-    "synthesis_compose": "openai/gpt-4.1",
+    # --- Mini model: classification, judgment, follow-up generation ---
+    "clarify_prompt":            settings.LLM_MINI_MODEL,
+    "intent_classify":           settings.LLM_MINI_MODEL,
+    "interview_topic":           settings.LLM_MINI_MODEL,
+    "interview_refine_conclude": settings.LLM_MINI_MODEL,
+    "interview_followup":        settings.LLM_MINI_MODEL,
+    "interview_planning":        settings.LLM_MINI_MODEL,
+
+    # --- Full model: synthesis, answer generation, routing ---
+    "synthesis_compose":         settings.LLM_FULL_MODEL,
+    "answer_generate":           settings.LLM_FULL_MODEL,
+    "sme_prompt":                settings.LLM_FULL_MODEL,
 }
 
 
 class ModelRouter:
     def get_model(self, task: str) -> str:
-        return TASK_MODEL_MAP[task]  # raises KeyError for unknown tasks
+        if task not in TASK_MODEL_MAP:
+            raise KeyError(
+                f"Unknown LLM task '{task}'. "
+                f"Register it in TASK_MODEL_MAP before use. "
+                f"Known tasks: {sorted(TASK_MODEL_MAP.keys())}"
+            )
+        return TASK_MODEL_MAP[task]

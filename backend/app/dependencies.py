@@ -1,16 +1,27 @@
-import os
-from app.llm_client import LLMClient
+from pathlib import Path
+
+from app.ai_core.llm_client import LLMClient
+from app.ai_core.model_router import ModelRouter
+from app.ai_core.prompt_loader import PromptLoader
+from app.ai_core.embedding_client import EmbeddingService
 from app.repositories.db_interview_adapter import DBInterviewRepository
 from app.repositories.knowledge_repository import KnowledgeRepository
 from app.services.interview_service import InterviewService
 from app.services.synthesis_service import SynthesisService
 
-# DB-backed repos (persists across restarts)
+PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+# --- Singletons (module-level, instantiated once at startup) ---
+_prompt_loader = PromptLoader(PROMPTS_DIR)
+_model_router = ModelRouter()
+
+llm = LLMClient(prompt_loader=_prompt_loader, model_router=_model_router)
+embedding = EmbeddingService()
+
+# --- DB-backed repos ---
 interview_repo = DBInterviewRepository()
 
-# KnowledgeEntryRepository adapter for C's synthesis_service
-# C's service calls: repo.create(...) -> expects dict with ["id"]
-# We wrap KnowledgeRepository to return dicts
+
 class _KnowledgeAdapter:
     async def create(
         self,
@@ -62,15 +73,12 @@ class _KnowledgeAdapter:
         reason: str | None = None,
     ) -> None:
         from app.db import AsyncSessionLocal
-        from app.repositories.knowledge_repository import InvalidStateError
         async with AsyncSessionLocal() as db:
             repo = KnowledgeRepository(db)
             await repo.transition_status(entry_id, new_status, reason=reason)
 
-knowledge_repo = _KnowledgeAdapter()
 
-os.environ.setdefault("OPENAI_API_KEY", os.getenv("LLM_API_KEY", "sk-local-placeholder"))
-llm = LLMClient()
+knowledge_repo = _KnowledgeAdapter()
 
 interview_service = InterviewService(interview_repo=interview_repo, llm=llm)
 synthesis_service = SynthesisService(

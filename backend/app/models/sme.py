@@ -16,6 +16,12 @@ class SME(Base):
     responsible_products = Column(ARRAY(String), nullable=True)
     sub_expertise = Column(ARRAY(String), nullable=True)
     embedding = Column(Vector(1024), nullable=True)
+    embedding_status = Column(
+        String,
+        nullable=False,
+        server_default='pending',
+        comment="Tracks embedding lifecycle: pending | done | failed",
+    )
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     interviews = relationship("Interview", back_populates="sme", cascade="all, delete")

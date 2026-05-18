@@ -1,11 +1,9 @@
-import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 
 from pydantic import ValidationError
 
-from app.llm_client import LLMClient
+from app.ai_core.llm_client import LLMClient
 from app.repositories.stub import InterviewRepository
 try:
     from app.repositories.knowledge_repository import KnowledgeRepository as KnowledgeEntryRepository
@@ -17,12 +15,6 @@ except ImportError:
 from app.schemas.synthesis import SynthesisContent
 
 logger = logging.getLogger(__name__)
-
-PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
-
-
-def _load_prompt(filename: str) -> str:
-    return (PROMPTS_DIR / filename).read_text(encoding="utf-8")
 
 
 class SynthesisService:
@@ -47,31 +39,26 @@ class SynthesisService:
         if not summaries:
             raise ValueError(f"No topic summaries found for interview {interview_id}")
 
-        formatted = "\n\n".join(
+        formatted_summaries = "\n\n".join(
             f"Topic {i + 1}: {s['topic_question']}\n{s['refined_content']}"
             for i, s in enumerate(summaries)
         )
 
-        template = _load_prompt("synthesis_generate.md")
-        prompt = (
-            template
-            .replace("{sme_name}", sme_name)
-            .replace("{specialization}", specialization)
-            .replace("{topic_summaries_formatted}", formatted)
+        resp = await self._llm.call(
+            "synthesis_compose",
+            {
+                "sme_name": sme_name,
+                "specialization": specialization,
+                "topic_summaries_formatted": formatted_summaries,
+            },
+            response_format="json",
         )
 
-        response = await self._llm.chat(
-            messages=[{"role": "user", "content": prompt}],
-            model=self._llm.synthesis_model,
-            max_tokens=4000,
-        )
+        if resp.json is None:
+            logger.error("Synthesis JSON parse failed.\nRaw output: %s", resp.text)
+            raise ValueError("LLM returned invalid JSON for synthesis_compose")
 
-        try:
-            raw = json.loads(response.content.strip())
-        except json.JSONDecodeError as e:
-            logger.error("Synthesis JSON parse failed: %s\nRaw output: %s", e, response.content)
-            raise ValueError(f"LLM returned invalid JSON: {e}") from e
-
+        raw = resp.json
         raw.setdefault("generated_at", datetime.now(timezone.utc).isoformat())
 
         # Inject source_interview_id into every topic before schema validation
